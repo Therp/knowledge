@@ -78,19 +78,11 @@ promote its widespread use.
 To contribute to this module, please visit http://odoo-community.org.
 """,
     "category": "Knowledge Management",
-    "depends": [
-        'base',
-    ],
-    "data": [
-        "data/ir_cron.xml",
-        "data/init.xml",
-    ],
-    "test": [
-    ],
+    "depends": ["base"],
+    "data": ["data/ir_cron.xml", "data/init.xml"],
+    "test": [],
     "auto_install": False,
     "installable": True,
     "application": False,
-    "external_dependencies": {
-        'python': ['dateutil', 'pytz'],
-    },
+    "external_dependencies": {"python": ["dateutil", "pytz"]},
 }
