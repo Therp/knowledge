@@ -15,22 +15,16 @@ system.
 
 Configuration
 =============
-If it doesn't exist, the module creates a parameter `ir_attachment.location`
-with value `file:///filestore`. This will make new attachments end up in your
-root path (the odoo configuration value `root_path`) in a subdirectory called
-`filestore`.
+The module will use the first (=lowest id) document.storage record that points
+to the external file system. To be effective such a record should be created
+if it does not exist already.
 
-Then it will create a cron job that does the actual transfer and schedule it
-for 01:42 at night in the installing user's time zone. The cronjob will do a
-maximum of 10000 conversions per run and is run every night.
+You have to configure and activate the defined cron job to get everything running.
+The cronjob will do a maximum of 10000 conversions per run.
 The limit is configurable with the parameter `attachments_to_filesystem.limit`.
 
 After all attachments are migrated (the log will show then `moving 0
 attachments to filestore`), you can disable or delete the cronjob.
-
-If you need to run the migration synchronously during install, set the
-parameter `attachments_to_filesystem.move_during_init` *before* installing this
-addon.
 
 Credits
 =======
@@ -62,8 +56,8 @@ promote its widespread use.
 To contribute to this module, please visit http://odoo-community.org.
 """,
     "category": "Knowledge Management",
-    "depends": ["attachements_v7_compatible"],
-    "data": ["data/ir_cron.xml", "data/init.xml"],
+    "depends": ["attachment_v7_compatible"],
+    "data": ["data/ir_cron.xml"],
     "test": [],
     "auto_install": False,
     "installable": True,

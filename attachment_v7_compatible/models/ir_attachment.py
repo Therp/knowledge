@@ -3,58 +3,32 @@
 # Copyright 2024 - Therp BV <https://therp.nl>.
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl.html).
 
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
 import hashlib
 import logging
 import os
-import pytz
 import re
 
 from openerp.osv import  fields, osv
-from openerp.tools import DEFAULT_SERVER_DATETIME_FORMAT
 
 SUPERUSER_ID = 1
+
+check64 = re.compile("^(?=(.{4})*$)[A-Za-z0-9+/]*={0,2}$")
+
+_logger = logging.getLogger(__name__)
+
 
 class IrAttachment(osv.osv):
     _inherit = "ir.attachment"
 
-    def _attachments_to_filesystem_init(self, cr, uid, context=None):
-        """Set up config parameter and cron job"""
-        module_name = __name__.split(".")[-3]
-        ir_model_data = self.pool["ir.model.data"]
-        ir_cron = self.pool["ir.cron"]
-        location = self.pool["ir.config_parameter"].get_param(
-            cr, uid, "ir_attachment.location"
-        )
-        if location:
-            # we assume the user knows what she's doing. Might be file:, but
-            # also whatever other scheme shouldn't matter. We want to bring
-            # data from the database to there
-            pass
-        else:
-            ir_model_data._update(
-                cr,
-                uid,
-                "ir.config_parameter",
-                module_name,
-                {"key": "ir_attachment.location", "value": "file:///filestore"},
-                xml_id="config_parameter_ir_attachment_location",
-                noupdate=True,
-                context=context,
-            )
-
-    # 'data' field implementation
-    def _full_path(self, cr, uid, location, path):
+    def _full_path(self, cr, path):
         # Unlike in OpenERP 7.0 we will use the document file store,
-        assert location.startswith('file:'), "Unhandled filestore location %s" % location
-        location = super(IrAttachment, self)._get_filestore(cr)
+        location = self._get_location(cr)
         path = re.sub('[.]','',path)
         path = path.strip('/\\')
         return os.path.join(location, path)
 
-    def _file_read(self, cr, uid, location, fname, bin_size=False):
-        full_path = self._full_path(cr, uid, location, fname)
+    def _file_read(self, cr, uid, fname, bin_size=False):
+        full_path = self._full_path(cr, fname)
         r = ''
         try:
             if bin_size:
@@ -65,28 +39,27 @@ class IrAttachment(osv.osv):
             _logger.error("_read_file reading %s",full_path)
         return r
 
-    def _file_write(self, cr, uid, location, value):
-        bin_value = value.decode('base64')
+    def _file_write(self, cr, uid, bin_value):
         fname = hashlib.sha1(bin_value).hexdigest()
         # scatter files across 1024 dirs
         # we use '/' in the db (even on windows)
         fname = fname[:3] + '/' + fname
-        full_path = self._full_path(cr, uid, location, fname)
+        full_path = self._full_path(cr, fname)
         try:
             dirname = os.path.dirname(full_path)
             if not os.path.isdir(dirname):
                 os.makedirs(dirname)
             open(full_path,'wb').write(bin_value)
         except IOError:
-            _logger.error("_file_write writing %s",full_path)
+            _logger.error("_file_write writing %s", full_path)
         return fname
 
-    def _file_delete(self, cr, uid, location, fname):
+    def _file_delete(self, cr, uid, fname):
         # using SQL to include files hidden through unlink or due to record rules
         cr.execute("SELECT COUNT(*) FROM ir_attachment WHERE store_fname = %s", (fname,))
         count = cr.fetchone()[0]
         if count <= 1:
-            full_path = self._full_path(cr, uid, location, fname)
+            full_path = self._full_path(cr, fname)
             try:
                 os.unlink(full_path)
             except OSError:
@@ -99,17 +72,16 @@ class IrAttachment(osv.osv):
         if context is None:
             context = {}
         result = {}
-        location = self.pool.get('ir.config_parameter').get_param(cr, SUPERUSER_ID, 'ir_attachment.location')
+        location = self._get_location(cr)
         bin_size = context.get('bin_size')
         for attach in self.browse(cr, uid, ids, context=context):
             if location and attach.store_fname:
-                result[attach.id] = self._file_read(cr, uid, location, attach.store_fname, bin_size)
+                result[attach.id] = self._file_read(cr, uid, attach.store_fname, bin_size)
             else:
                 result[attach.id] = attach.db_datas
                 if bin_size:
                     result[attach.id] = int(result[attach.id] or 0)
         return result
-
 
     def _data_set(self, cr, uid, id, name, value, arg, context=None):
         # We dont handle setting data to null
@@ -117,38 +89,43 @@ class IrAttachment(osv.osv):
             return True
         if context is None:
             context = {}
-        location = self.pool.get('ir.config_parameter').get_param(cr, SUPERUSER_ID, 'ir_attachment.location')
-        file_size = len(value.decode('base64'))
+        location = self._get_location(cr)
+        if check64.match(value):
+            # Convert base64 values to binary
+            bin_value = value.decode('base64')
+        else:
+            # Value already is in binary format
+            bin_value = value
+        vals = {
+            "file_size": len(bin_value),
+        }
         if location:
             attach = self.browse(cr, uid, id, context=context)
             if attach.store_fname:
-                self._file_delete(cr, uid, location, attach.store_fname)
-            fname = self._file_write(cr, uid, location, value)
-            # SUPERUSER_ID as probably don't have write access, trigger during create
-            super(IrAttachment, self).write(
-                cr, SUPERUSER_ID, [id], {'store_fname': fname, 'file_size': file_size}, context=context
-            )
+                self._file_delete(cr, uid, attach.store_fname)
+            fname = self._file_write(cr, uid, bin_value)
+            vals["store_fname"] = fname
         else:
-            super(IrAttachment, self).write(
-                cr, SUPERUSER_ID, [id], {'db_datas': value, 'file_size': file_size}, context=context
-            )
-        return True
+            vals["db_datas"] = value
+        # SUPERUSER_ID as probably don't have write access, trigger during create
+        return super(IrAttachment, self).write(cr, SUPERUSER_ID, [id], vals, context=context)
 
     _columns = {
-        'datas': fields.function(
+        # Need to re-add this as functions not specified as string or with lambda.
+        "datas": fields.function(
             _data_get, fnct_inv=_data_set,
-            string='File Content',
+            string="File Content",
             type="binary", nodrop=True,
         ),
-        'db_datas': fields.binary('Database Data'),
-        'file_size': fields.integer('File Size'),
     }
 
-    def read(self, cr, uid, ids, fields_to_read=None, context=None, load='_classic_read'):
+    def read(self, cr, uid, ids, fields, context=None, load='_classic_read'):
         if isinstance(ids, (int, long)):
             ids = [ids]
         self.check(cr, uid, ids, 'read', context=context)
-        return super(IrAttachment, self).read(cr, uid, ids, fields_to_read, context, load)
+        return super(IrAttachment, self).read(
+                cr, uid, ids, fields, context=context, load=load
+        )
 
     def write(self, cr, uid, ids, vals, context=None):
         if isinstance(ids, (int, long)):
@@ -162,11 +139,11 @@ class IrAttachment(osv.osv):
         if isinstance(ids, (int, long)):
             ids = [ids]
         self.check(cr, uid, ids, 'unlink', context=context)
-        location = self.pool.get('ir.config_parameter').get_param(cr, SUPERUSER_ID, 'ir_attachment.location')
+        location = self._get_location(cr)
         if location:
             for attach in self.browse(cr, uid, ids, context=context):
                 if attach.store_fname:
-                    self._file_delete(cr, uid, location, attach.store_fname)
+                    self._file_delete(cr, uid, attach.store_fname)
         return super(IrAttachment, self).unlink(cr, uid, ids, context)
 
     def create(self, cr, uid, values, context=None):
@@ -174,3 +151,17 @@ class IrAttachment(osv.osv):
         if 'file_size' in values:
             del values['file_size']
         return super(IrAttachment, self).create(cr, uid, values, context)
+
+    def _get_location(self, cr, context=None):
+        """Location will be the first document.storage for filesystem."""
+        storage_model = self.pool["document.storage"]
+        domain = [("type", "=", "realstore")]
+        storage_ids = storage_model.search(
+            cr, SUPERUSER_ID, domain, limit=1, order="id desc", context=context
+        )
+        if not storage_ids:
+            return False
+        storage_info = storage_model.read(cr, SUPERUSER_ID, storage_ids, ["path"])
+        if not storage_info:
+            return False
+        return storage_info[0]["path"]

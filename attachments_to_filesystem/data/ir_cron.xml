@@ -5,9 +5,9 @@
             <field name="name">Move attachments to filestore</field>
             <field name="active" eval="True" />
             <field name="user_id" ref="base.user_root" />
-            <field name="priority" eval="-1" />
-            <field name="numbercall" eval="1" />
-            <field name="nextcall">2000-01-01</field>
+            <field name="priority" eval="5" />
+            <field name="numbercall" eval="-1" />
+            <field name="nextcall">2024-05-21</field>
             <field name="doall" eval="False" />
             <field name="model">ir.attachment</field>
             <field name="function">_attachments_to_filesystem_cron</field>

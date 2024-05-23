@@ -16,10 +16,9 @@ hash of the contents, back to 6.1.
 
 Configuration
 =============
-If it doesn't exist, the module creates a parameter `ir_attachment.location`
-with value `file:///filestore`. This will make new attachments end up in your
-root path (the odoo configuration value `root_path`) in a subdirectory called
-`filestore`.
+The module will use the first (=lowest id) document.storage record that points
+to the external file system. To be effective such a record should be created
+if it does not exist already.
 
 Credits
 =======
@@ -54,8 +53,7 @@ To contribute to this module, please visit http://odoo-community.org.
     # mechanism completely. However the document module provides the needed extra fields
     # and takes care of the conversion from the datas field to db_datas.
     "depends": ["document"],
-    "data": ["data/init.xml"],
-    "test": [],
+    "data": [],
     "auto_install": False,
     "installable": True,
     "application": False,
