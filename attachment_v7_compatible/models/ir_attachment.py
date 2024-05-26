@@ -23,7 +23,6 @@ class IrAttachment(osv.osv):
     def _full_path(self, cr, path):
         # Unlike in OpenERP 7.0 we will use the document file store,
         location = self._get_location(cr)
-        path = re.sub('[.]','',path)
         path = path.strip('/\\')
         return os.path.join(location, path)
 
@@ -40,7 +39,10 @@ class IrAttachment(osv.osv):
         return r
 
     def _file_write(self, cr, uid, bin_value):
-        fname = hashlib.sha1(bin_value).hexdigest()
+        try:
+            fname = hashlib.sha1(bin_value).hexdigest()
+        except UnicodeEncodeError:
+            return self._file_write(cr, uid, bin_value.encode("utf-8"))
         # scatter files across 1024 dirs
         # we use '/' in the db (even on windows)
         fname = fname[:3] + '/' + fname
@@ -90,7 +92,10 @@ class IrAttachment(osv.osv):
         if context is None:
             context = {}
         location = self._get_location(cr)
-        if check64.match(value):
+        # base64 encoded strings can contain newlines (used in the past for
+        # sending them in lines through email), but they are NOT part of
+        # the encoded data.
+        if check64.match(value.replace("\n", "")):
             # Convert base64 values to binary
             bin_value = value.decode('base64')
         else:
