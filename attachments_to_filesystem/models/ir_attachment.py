@@ -9,28 +9,19 @@ from dateutil.relativedelta import relativedelta
 import pooler
 from openerp.osv.orm import Model
 
+SUPERUSER_ID = 1
+
 _logger = logging.getLogger(__name__)
 
 
 class IrAttachment(Model):
     _inherit = "ir.attachment"
 
-    def _attachments_to_filesystem_cron(self, cr, uid, context=None, limit=512):
+    def _attachments_to_filesystem_cron(self, cr, uid, context=None):
         """Do the actual moving. Commit each move through a separate cursor."""
-        limit = (
-            int(
-                self.pool["ir.config_parameter"].get_param(
-                    cr, uid, "attachments_to_filesystem.limit", "0"
-                )
-            )
-            or limit
-        )
-        ir_attachment = self.pool["ir.attachment"]
-        domain = [("db_datas", "!=", False)]
-        attachment_ids = ir_attachment.search(
-            cr, uid, domain, limit=limit, order="id asc", context=context
-        )
+        attachment_ids = self._get_attachment_ids(cr)
         _logger.info("moving %d attachments to filestore", len(attachment_ids))
+        ir_attachment = self.pool["ir.attachment"]
         try:
             # Put everything in try, except finally block, to cetainly close cursor.
             new_cr = pooler.get_db(cr.dbname).cursor()
@@ -54,7 +45,7 @@ class IrAttachment(Model):
                         attachment_id,
                     )
                     new_cr.rollback()
-                if counter == limit or (not counter % 64):
+                if counter == len(attachment_ids) or (not counter % 64):
                     _logger.info("moving attachments: %d done", counter)
         except Exception as exc:
             _logger.exception(
@@ -62,3 +53,23 @@ class IrAttachment(Model):
             )
         finally:
             new_cr.close()
+
+    def _get_attachment_ids(self, cr):
+        """Get attachments to move through SQL.
+
+        The document module has an error in the search function, making
+        it return only a limited subset of attachments that are available,
+        """
+        limit = int(
+            self.pool["ir.config_parameter"].get_param(
+                cr, SUPERUSER_ID, "attachments_to_filesystem.limit", "512"
+            )
+        )
+        cr.execute(
+            "SELECT id FROM ir_attachment"
+            " WHERE NOT db_datas IS NULL AND store_fname IS NULL"
+            " ORDER BY id ASC"
+            " LIMIT %d" % limit
+        )
+        rows = cr.fetchall()
+        return [row[0] for row in rows]
