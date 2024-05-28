@@ -51,7 +51,8 @@ class IrAttachment(osv.osv):
             dirname = os.path.dirname(full_path)
             if not os.path.isdir(dirname):
                 os.makedirs(dirname)
-            open(full_path,'wb').write(bin_value)
+            with open(full_path,'wb') as os_file:
+                os_file.write(bin_value)
         except IOError:
             _logger.error("_file_write writing %s", full_path)
         return fname
@@ -89,18 +90,10 @@ class IrAttachment(osv.osv):
         # We dont handle setting data to null
         if not value:
             return True
-        if context is None:
-            context = {}
+        context = context or {}
+        context["__from_node"] = True
         location = self._get_location(cr)
-        # base64 encoded strings can contain newlines (used in the past for
-        # sending them in lines through email), but they are NOT part of
-        # the encoded data.
-        if check64.match(value.replace("\n", "")):
-            # Convert base64 values to binary
-            bin_value = value.decode('base64')
-        else:
-            # Value already is in binary format
-            bin_value = value
+        bin_value = self._get_bin_value(value)
         vals = {
             "file_size": len(bin_value),
         }
@@ -114,6 +107,19 @@ class IrAttachment(osv.osv):
             vals["db_datas"] = value
         # SUPERUSER_ID as probably don't have write access, trigger during create
         return super(IrAttachment, self).write(cr, SUPERUSER_ID, [id], vals, context=context)
+
+    def _get_bin_value(self, value):
+        """If value is base64 encoded, decode it, else return as is."""
+        # base64 encoded strings can contain newlines (used in the past for
+        # sending them in lines through email), but they are NOT part of
+        # the encoded data.
+        if check64.match(value.replace("\n", "")):
+            # Convert base64 values to binary
+            bin_value = value.decode('base64')
+        else:
+            # Value already is in binary format
+            bin_value = value
+        return bin_value
 
     _columns = {
         # Need to re-add this as functions not specified as string or with lambda.
@@ -133,12 +139,9 @@ class IrAttachment(osv.osv):
         )
 
     def write(self, cr, uid, ids, vals, context=None):
-        if isinstance(ids, (int, long)):
-            ids = [ids]
-        self.check(cr, uid, ids, 'write', context=context, values=vals)
-        if 'file_size' in vals:
-            del vals['file_size']
-        return super(IrAttachment, self).write(cr, uid, ids, vals, context)
+        context = context or {}
+        context["__from_node"] = True
+        return super(IrAttachment, self).write(cr, uid, ids, vals, context=context)
 
     def unlink(self, cr, uid, ids, context=None):
         if isinstance(ids, (int, long)):
