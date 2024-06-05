@@ -33,7 +33,8 @@ class IrAttachment(osv.osv):
             if bin_size:
                 r = os.path.getsize(full_path)
             else:
-                r = open(full_path,'rb').read().encode('base64')
+                with open(full_path,'rb') as os_file:
+                    r = os_file.read().encode('base64')
         except IOError:
             _logger.error("_read_file reading %s",full_path)
         return r
@@ -53,7 +54,6 @@ class IrAttachment(osv.osv):
                 os.makedirs(dirname)
             with open(full_path,'wb') as os_file:
                 os_file.write(bin_value)
-                os_file.close()
         except IOError:
             _logger.error("_file_write writing %s", full_path)
         return fname
@@ -114,7 +114,7 @@ class IrAttachment(osv.osv):
         # base64 encoded strings can contain newlines (used in the past for
         # sending them in lines through email), but they are NOT part of
         # the encoded data.
-        if check64.match(value.replace("\n", "")):
+        if self._is_base64(value):
             # Convert base64 values to binary
             bin_value = value.decode('base64')
         else:
@@ -122,12 +122,22 @@ class IrAttachment(osv.osv):
             bin_value = value
         return bin_value
 
+    def _is_base64(self, value):
+        # Only check the (max) 64 first positions.
+        if check64.match(value.replace("\n", "")[:64]):
+            return True
+        return False
+
     _columns = {
         # Need to re-add this as functions not specified as string or with lambda.
         "datas": fields.function(
             _data_get, fnct_inv=_data_set,
             string="File Content",
             type="binary", nodrop=True,
+        ),
+        "certified_binary": fields.boolean(
+            string="File has been certified to contain binary (not base64) content",
+            default=False,
         ),
     }
 
