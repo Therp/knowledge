@@ -53,7 +53,7 @@ To contribute to this module, please visit http://odoo-community.org.
     # mechanism completely. However the document module provides the needed extra fields
     # and takes care of the conversion from the datas field to db_datas.
     "depends": ["document"],
-    "data": [],
+    "data": ["data/ir_cron.xml"],
     "auto_install": False,
     "installable": True,
     "application": False,

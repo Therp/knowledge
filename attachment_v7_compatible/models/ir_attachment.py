@@ -53,6 +53,7 @@ class IrAttachment(osv.osv):
                 os.makedirs(dirname)
             with open(full_path,'wb') as os_file:
                 os_file.write(bin_value)
+                os_file.close()
         except IOError:
             _logger.error("_file_write writing %s", full_path)
         return fname
